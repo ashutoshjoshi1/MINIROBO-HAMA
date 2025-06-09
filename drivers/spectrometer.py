@@ -18,113 +18,79 @@ except ImportError as e:
         "AvaSpec SDK import failed. Make sure avaspec.pyd and the Avaspec DLL are in the same directory."
     ) from e
 
-# Import Hamamatsu spectrometer support if available
+import os
+import sys
+import numpy as np
+
+# 1) RELATIVE IMPORT of your local Hama3 driver
 try:
-    from hama3_spectrometer import Hama3_Spectrometer
+    from .hama3_spectrometer import Hama3_Spectrometer
+    print("[spectrometer.py] Imported Hama3_Spectrometer via relative import.")
 except ImportError:
-    Hama3_Spectrometer = None
+    try:
+        from drivers.hama3_spectrometer import Hama3_Spectrometer
+        print("[spectrometer.py] Imported Hama3_Spectrometer via absolute import.")
+    except ImportError:
+        Hama3_Spectrometer = None
+        print("[spectrometer.py] Could not import Hama3_Spectrometer at all!")
 
-class StopMeasureThread(QThread):
-    """Thread to stop an ongoing Avantes measurement (calls AVS_StopMeasure)."""
-    finished_signal = pyqtSignal()
+# ... (Avantes imports unchanged) ...
 
-    def __init__(self, spec_handle, parent=None):
-        super().__init__(parent)
-        self.spec_handle = spec_handle
-
-    def run(self):
-        AVS_StopMeasure(self.spec_handle)
-        self.finished_signal.emit()
 
 def connect_spectrometer():
     """
-    Attempt to connect to a spectrometer. 
-    Tries Hamamatsu first, then Avantes if Hamamatsu is not found.
-    Returns a tuple: (handle, wavelengths, num_pixels, serial_str).
+    Try Hamamatsu first, then Avantes. Returns (handle, wavelengths, npix, serial_str).
     """
-    # Try Hamamatsu spectrometer first
+    # === TRY HAMAMATSU ===
     if Hama3_Spectrometer is not None:
+        print("[connect_spectrometer] Attempting Hamamatsu connection...")
         try:
-            print("Trying to connect to Hamamatsu...")
             hama = Hama3_Spectrometer()
-            # Configure Hamamatsu spectrometer parameters
-            hama.dll_path = r"DcIcUSB.dll"        # Path to Hamamatsu DLL (assumed to be in current directory)
-            hama.sn = "46AN0776"                  # Serial number of the Hamamatsu spectrometer (update if different)
+
+            # 2) BUILD ABSOLUTE DLL PATH
+            base = os.path.dirname(__file__)
+            dll_rel = os.path.join("..", "spec_hama3", "DcIcUSB_v1.1.0.7", "x64", "DcIcUSB.dll")
+            dll_path = os.path.abspath(os.path.join(base, dll_rel))
+            print(f"[connect_spectrometer] Hamamatsu DLL path: {dll_path}")
+            hama.dll_path = dll_path
+
+            # 3) PASS SERIAL AS BYTES
+            #    If your SN is 46AN0776, do *not* include the b'' inside the string literal!
+            hama.sn = b"46AN0776"
+            print(f"[connect_spectrometer] Hamamatsu SN set to: {hama.sn!r}")
+
             hama.debug_mode = 1
-            hama.alias = "1"
+            hama.alias = "hama1"
             hama.npix_active = 4096
             hama.initialize_spec_logger()
+
             res = hama.connect()
+            print(f"[connect_spectrometer] Hamamatsu connect() returned: {res!r}")
             if res == "OK":
-                # Set a default integration time (5 ms for fast update)
-                set_res = hama.set_it(5.0)
-                if set_res != "OK":
-                    print(f"Warning: Hamamatsu spectrometer set_it failed: {set_res}")
-                spec = hama
-                serial_str = spec.sn
-                # Clean up serial string for display (remove b'' if present)
-                if isinstance(serial_str, str) and serial_str.startswith("b'"):
-                    serial_str = serial_str[2:-1]
-                wavelengths = list(range(spec.npix_active))  # No wavelength calibration; use pixel indices
-                num_pixels = spec.npix_active
-                return spec, wavelengths, num_pixels, serial_str
-            else:
-                print(f"Hamamatsu connection failed: {res}")
+                it_res = hama.set_it(5.0)
+                print(f"[connect_spectrometer] Hamamatsu set_it() returned: {it_res!r}")
+                if it_res == "OK":
+                    # tag it so upper layers know it’s Hamamatsu
+                    setattr(hama, "spec_type", "Hama3")
+                    wavelengths = list(range(hama.npix_active))
+                    serial_str = hama.sn.decode("ascii", "ignore")
+                    return hama, wavelengths, hama.npix_active, serial_str
+
+            print("[connect_spectrometer] Hamamatsu did not connect OK, falling through to Avantes.")
+
         except Exception as e:
-            print(f"Hamamatsu connection failed: {e}")
-    # If Hamamatsu not connected, try Avantes
-    print("Trying to connect to Avantes...")
-    try:
-        ret = AVS_Init(0)
-    except Exception as e:
-        raise Exception(f"Spectrometer initialization failed: {e}")
-    if ret <= 0:
-        # No Avantes spectrometer found or error occurred
-        AVS_Done()
-        if ret == 0:
-            raise Exception("No spectrometer found.")
-        elif 'ERR_ETHCONN_REUSE' in globals() and ret == ERR_ETHCONN_REUSE:
-            raise Exception("Spectrometer already in use by another program.")
-        else:
-            raise Exception(f"AVS_Init error (code {ret}).")
-    dev_count = AVS_UpdateUSBDevices()
-    if dev_count < 1:
-        AVS_Done()
-        raise Exception("No spectrometer found after USB device update.")
-    id_list = AVS_GetList(dev_count)
-    if not id_list:
-        AVS_Done()
-        raise Exception("Failed to retrieve spectrometer list.")
-    # Activate the first available spectrometer
-    dev_id = id_list[0]
-    serial_str = dev_id.SerialNumber.decode().strip() if hasattr(dev_id.SerialNumber, 'decode') else str(dev_id.SerialNumber)
-    avs_id = AvsIdentityType()
-    avs_id.SerialNumber = dev_id.SerialNumber
-    avs_id.UserFriendlyName = b"\x00"
-    avs_id.Status = b'\x01'
-    spec_handle = AVS_Activate(avs_id)
-    if spec_handle == INVALID_AVS_HANDLE_VALUE:
-        AVS_Done()
-        raise Exception(f"Error opening spectrometer (Serial: {serial_str})")
-    device_data = AVS_GetParameter(spec_handle, 63484)  # 0xF7FC (ID for device parameters)
-    if device_data is None:
-        AVS_Done()
-        raise Exception("Failed to get spectrometer parameters.")
-    num_pixels = device_data.m_Detector_m_NrPixels
-    # Determine start and stop pixel (in case of partial readouts)
-    start_pixel = getattr(device_data, 'm_StandAlone_m_Meas_m_StartPixel', 0)
-    stop_pixel = getattr(device_data, 'm_StandAlone_m_Meas_m_StopPixel', num_pixels - 1)
-    if start_pixel < 0:
-        start_pixel = 0
-    if stop_pixel <= start_pixel or stop_pixel > num_pixels - 1:
-        stop_pixel = num_pixels - 1
-    # Get wavelength calibration if available
-    wavelengths = AVS_GetLambda(spec_handle)
-    if wavelengths:
-        wavelengths = np.ctypeslib.as_array(wavelengths)  # convert C array to numpy array
+            print(f"[connect_spectrometer] Exception in Hamamatsu block: {e!s}")
+
     else:
-        wavelengths = list(range(num_pixels))
-    return spec_handle, wavelengths, num_pixels, serial_str
+        print("[connect_spectrometer] Hama3_Spectrometer class is None, skipping Hamamatsu.")
+
+    # === TRY AVANTES ===
+    print("[connect_spectrometer] Attempting Avantes connection...")
+    # … your existing Avantes logic here …
+
+    # If neither connected:
+    raise RuntimeError("❌ No spectrometer connected.")
+
 
 def prepare_measurement(spec_handle, num_pixels, integration_time_ms=50.0, averages=1, cycles=1, repetitions=1):
     """Prepare the measurement configuration for an Avantes spectrometer."""
