@@ -3,19 +3,6 @@ from PyQt5.QtWidgets import QApplication, QSplashScreen, QMessageBox
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import QTimer, Qt
 from gui.main_window import MainWindow
-from PyQt5.QtWidgets import QGroupBox
-
-# Monkey-patch QGroupBox.setStyleSheet to swallow parse errors
-_orig_setStyle = QGroupBox.setStyleSheet
-def _safe_setStyle(self, style: str):
-    try:
-        _orig_setStyle(self, style)
-    except Exception as e:
-        print(f"Ignored invalid QGroupBox stylesheet: {e}")
-QGroupBox.setStyleSheet = _safe_setStyle
-
-# Now import the rest of your application
-import sys
 
 def main():
     # Set high DPI attributes BEFORE creating QApplication
