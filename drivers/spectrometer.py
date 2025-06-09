@@ -4,6 +4,7 @@ import os
 import sys
 import ctypes
 import numpy as np
+import importlib.util
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -19,17 +20,28 @@ try:
 except ImportError as e:
     raise ImportError("Failed to import Avantes SDK (avaspec). Make sure avaspec.pyd is present.") from e
 
-# === Hamamatsu import (relative) ===
-try:
-    from .hama3_spectrometer import Hama3_Spectrometer
-    print("[spectrometer.py] Imported Hama3_Spectrometer via relative import.")
-except ImportError:
+# === Hamamatsu import via dynamic file loading ===
+Hama3_Spectrometer = None
+candidate_paths = [
+    os.path.join(os.path.dirname(__file__), 'hama3_spectrometer.py'),
+    os.path.join(os.path.dirname(__file__), '..', 'hama3_spectrometer.py'),
+    os.path.join(os.path.dirname(__file__), '..', 'spec_hama3', 'hama3_spectrometer.py')
+]
+for rel in candidate_paths:
     try:
-        from drivers.hama3_spectrometer import Hama3_Spectrometer
-        print("[spectrometer.py] Imported Hama3_Spectrometer via absolute import.")
-    except ImportError:
-        Hama3_Spectrometer = None
-        print("[spectrometer.py] Could not import Hama3_Spectrometer at all!")
+        path = os.path.abspath(rel)
+        if os.path.isfile(path):
+            spec = importlib.util.spec_from_file_location('hama3_spectrometer', path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            if hasattr(module, 'Hama3_Spectrometer'):
+                Hama3_Spectrometer = module.Hama3_Spectrometer
+                print(f"[spectrometer.py] Loaded Hama3_Spectrometer from {path}")
+                break
+    except Exception as e:
+        print(f"[spectrometer.py] Failed loading Hama3_Spectrometer from {rel}: {e}")
+if Hama3_Spectrometer is None:
+    print("[spectrometer.py] Could not load Hama3_Spectrometer from any known path.")
 
 class StopMeasureThread(QThread):
     """
@@ -67,7 +79,7 @@ def connect_spectrometer():
             print(f"[connect_spectrometer] Hamamatsu DLL path: {dll_path}")
             hama.dll_path = dll_path
 
-            # Serial as bytes
+            # Serial as bytes (no b'' literal inside string)
             hama.sn = b"46AN0776"
             print(f"[connect_spectrometer] Hamamatsu SN set to: {hama.sn!r}")
 
@@ -90,7 +102,6 @@ def connect_spectrometer():
             print("[connect_spectrometer] Hamamatsu did not connect OK, falling through to Avantes.")
         except Exception as e:
             print(f"[connect_spectrometer] Exception in Hamamatsu block: {e}")
-
     else:
         print("[connect_spectrometer] Hama3_Spectrometer class is None, skipping Hamamatsu.")
 
@@ -99,7 +110,7 @@ def connect_spectrometer():
     ret = AVS_Init(0)
     if ret <= 0:
         AVS_Done()
-        raise RuntimeError(f"AVS_Init error (code {ret}) or no spectrometer found.")
+        raise RuntimeError(f"AVS_Init error (code {ret}) or no Avantes found.")
 
     dev_count = AVS_UpdateUSBDevices()
     if dev_count < 1:
@@ -130,7 +141,6 @@ def connect_spectrometer():
         raise RuntimeError("Failed to read Avantes parameters.")
 
     npix = device_data.m_Detector_m_NrPixels
-    # Wavelength calibration
     wls = AVS_GetLambda(handle)
     if wls is not None:
         wls = np.ctypeslib.as_array(wls)
