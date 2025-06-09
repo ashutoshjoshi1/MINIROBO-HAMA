@@ -4,56 +4,68 @@ from PyQt5.QtCore import QThread, pyqtSignal
 import ctypes
 import sys
 
-# Force DLL loading from same directory as main.py
+# Ensure DLL loading from the same directory as this file
+dll_dir = os.path.dirname(os.path.abspath(__file__))
+if dll_dir not in sys.path:
+    sys.path.append(dll_dir)
+os.environ['PATH'] = dll_dir + os.pathsep + os.environ.get('PATH', '')
+
+# Import Avantes spectrometer SDK (AvaSpec)
 try:
-    dll_dir = os.path.dirname(os.path.abspath(__file__))
-    if dll_dir not in sys.path:
-        sys.path.append(dll_dir)
-    os.environ['PATH'] = dll_dir + os.pathsep + os.environ['PATH']
     from avaspec import *
 except ImportError as e:
-    raise ImportError("AvaSpec SDK import failed. Make sure avaspec.pyd and avaspec DLL are in the same directory as main.py.") from e
+    raise ImportError(
+        "AvaSpec SDK import failed. Make sure avaspec.pyd and the Avaspec DLL are in the same directory."
+    ) from e
 
-# Try importing Hamamatsu spectrometer support
+# Import Hamamatsu spectrometer support if available
 try:
     from hama3_spectrometer import Hama3_Spectrometer
 except ImportError:
     Hama3_Spectrometer = None
 
 class StopMeasureThread(QThread):
+    """Thread to stop an ongoing Avantes measurement (calls AVS_StopMeasure)."""
     finished_signal = pyqtSignal()
+
     def __init__(self, spec_handle, parent=None):
         super().__init__(parent)
         self.spec_handle = spec_handle
+
     def run(self):
         AVS_StopMeasure(self.spec_handle)
         self.finished_signal.emit()
 
 def connect_spectrometer():
+    """
+    Attempt to connect to a spectrometer. 
+    Tries Hamamatsu first, then Avantes if Hamamatsu is not found.
+    Returns a tuple: (handle, wavelengths, num_pixels, serial_str).
+    """
     # Try Hamamatsu spectrometer first
     if Hama3_Spectrometer is not None:
         try:
             print("Trying to connect to Hamamatsu...")
             hama = Hama3_Spectrometer()
             # Configure Hamamatsu spectrometer parameters
-            hama.dll_path = r"spec_hama3\DcIcUSB_v1.1.0.7\x64\DcIcUSB.dll"  # Set DLL path for Hamamatsu SDK
-            hama.sn = "b'46AN0776'"  # Update serial number if different
+            hama.dll_path = r"DcIcUSB.dll"        # Path to Hamamatsu DLL (assumed to be in current directory)
+            hama.sn = "46AN0776"                  # Serial number of the Hamamatsu spectrometer (update if different)
             hama.debug_mode = 1
             hama.alias = "1"
             hama.npix_active = 4096
             hama.initialize_spec_logger()
             res = hama.connect()
             if res == "OK":
-                # Set a default integration time (e.g., 50 ms)
-                set_res = hama.set_it(50.0)
+                # Set a default integration time (5 ms for fast update)
+                set_res = hama.set_it(5.0)
                 if set_res != "OK":
                     print(f"Warning: Hamamatsu spectrometer set_it failed: {set_res}")
                 spec = hama
                 serial_str = spec.sn
-                # Clean up serial string for display (remove b' prefix if present)
+                # Clean up serial string for display (remove b'' if present)
                 if isinstance(serial_str, str) and serial_str.startswith("b'"):
                     serial_str = serial_str[2:-1]
-                wavelengths = list(range(spec.npix_active))  # Use pixel indices as wavelengths (no built-in calibration provided)
+                wavelengths = list(range(spec.npix_active))  # No wavelength calibration; use pixel indices
                 num_pixels = spec.npix_active
                 return spec, wavelengths, num_pixels, serial_str
             else:
@@ -61,12 +73,13 @@ def connect_spectrometer():
         except Exception as e:
             print(f"Hamamatsu connection failed: {e}")
     # If Hamamatsu not connected, try Avantes
+    print("Trying to connect to Avantes...")
     try:
-        print("[DEBUG] Calling AVS_Init(0)...")
         ret = AVS_Init(0)
     except Exception as e:
         raise Exception(f"Spectrometer initialization failed: {e}")
     if ret <= 0:
+        # No Avantes spectrometer found or error occurred
         AVS_Done()
         if ret == 0:
             raise Exception("No spectrometer found.")
@@ -74,20 +87,17 @@ def connect_spectrometer():
             raise Exception("Spectrometer already in use by another program.")
         else:
             raise Exception(f"AVS_Init error (code {ret}).")
-
     dev_count = AVS_UpdateUSBDevices()
     if dev_count < 1:
         AVS_Done()
-        raise Exception("No spectrometer found after update.")
-
+        raise Exception("No spectrometer found after USB device update.")
     id_list = AVS_GetList(dev_count)
     if not id_list:
         AVS_Done()
         raise Exception("Failed to retrieve spectrometer list.")
-
+    # Activate the first available spectrometer
     dev_id = id_list[0]
     serial_str = dev_id.SerialNumber.decode().strip() if hasattr(dev_id.SerialNumber, 'decode') else str(dev_id.SerialNumber)
-
     avs_id = AvsIdentityType()
     avs_id.SerialNumber = dev_id.SerialNumber
     avs_id.UserFriendlyName = b"\x00"
@@ -96,29 +106,28 @@ def connect_spectrometer():
     if spec_handle == INVALID_AVS_HANDLE_VALUE:
         AVS_Done()
         raise Exception(f"Error opening spectrometer (Serial: {serial_str})")
-
-    device_data = AVS_GetParameter(spec_handle, 63484)
+    device_data = AVS_GetParameter(spec_handle, 63484)  # 0xF7FC (ID for device parameters)
     if device_data is None:
         AVS_Done()
         raise Exception("Failed to get spectrometer parameters.")
-
     num_pixels = device_data.m_Detector_m_NrPixels
+    # Determine start and stop pixel (in case of partial readouts)
     start_pixel = getattr(device_data, 'm_StandAlone_m_Meas_m_StartPixel', 0)
     stop_pixel = getattr(device_data, 'm_StandAlone_m_Meas_m_StopPixel', num_pixels - 1)
     if start_pixel < 0:
         start_pixel = 0
     if stop_pixel <= start_pixel or stop_pixel > num_pixels - 1:
         stop_pixel = num_pixels - 1
-
+    # Get wavelength calibration if available
     wavelengths = AVS_GetLambda(spec_handle)
     if wavelengths:
-        wavelengths = np.ctypeslib.as_array(wavelengths)
+        wavelengths = np.ctypeslib.as_array(wavelengths)  # convert C array to numpy array
     else:
         wavelengths = list(range(num_pixels))
-
     return spec_handle, wavelengths, num_pixels, serial_str
 
 def prepare_measurement(spec_handle, num_pixels, integration_time_ms=50.0, averages=1, cycles=1, repetitions=1):
+    """Prepare the measurement configuration for an Avantes spectrometer."""
     meas_cfg = MeasConfigType()
     meas_cfg.m_StartPixel = 0
     meas_cfg.m_StopPixel = num_pixels - 1
@@ -143,64 +152,94 @@ def prepare_measurement(spec_handle, num_pixels, integration_time_ms=50.0, avera
     return AVS_PrepareMeasure(spec_handle, meas_cfg)
 
 def start_measurement(spec_handle, callback_func, num_scans=-1):
+    """Start an Avantes measurement with a callback (non-blocking)."""
     cb_ptr = AVS_MeasureCallbackFunc(callback_func)
     return AVS_MeasureCallback(spec_handle, cb_ptr, num_scans)
 
 def stop_measurement(spec_handle):
+    """Stop an ongoing Avantes measurement."""
     AVS_StopMeasure(spec_handle)
 
 def close_spectrometer():
+    """Close the spectrometer interface (Avantes)."""
     AVS_Done()
 
 class SpectrometerDriver:
+    """
+    High-level driver to manage multiple spectrometers (if needed in future).
+    Currently manages connecting, disconnecting, and resetting one or more spectrometers.
+    """
     def __init__(self):
-        self.handles = {}         # Store multiple spectrometer handles
-        self.data_status = {}     # Track measurement status for each spectrometer
-        self.recovery_level = {}  # Track recovery level for each spectrometer
+        self.handles = {}        # Store spectrometer handles by an ID or alias
+        self.data_status = {}    # Measurement status for each spectrometer
+        self.recovery_level = {}
         self.recovery_history = {}
         self.measurement_stats = {}
 
-    def reset(self, ispec, ini=True):
-        """Initializes or reinitializes a spectrometer."""
+    def reset(self, spec_id, do_test=True):
+        """
+        Initialize or reinitialize the spectrometer with identifier `spec_id`.
+        If `do_test` is True, performs a test measurement after connecting.
+        """
+        # If already connected, disconnect first
+        if spec_id in self.handles:
+            self.disconnect(spec_id)
+        # Auto-connect to an available spectrometer
+        success, message = False, ""
         try:
-            # Disconnect if already connected
-            if ispec in self.handles:
-                self.disconnect(ispec)
-            # Connect to spectrometer (auto-select Hamamatsu or Avantes)
             handle, wavelengths, num_pixels, serial_str = connect_spectrometer()
-            self.handles[ispec] = {
+            # Store handle and info
+            self.handles[spec_id] = {
                 'handle': handle,
                 'wavelengths': wavelengths,
                 'num_pixels': num_pixels,
                 'serial': serial_str
             }
             # Initialize status and stats
-            self.data_status[ispec] = 'READY'
-            self.recovery_level[ispec] = 0
-            self.recovery_history[ispec] = []
-            self.measurement_stats[ispec] = {'durations': [], 'avg_time': 0}
-            # Optionally take a test measurement on init
-            if ini:
-                self.set_it(ispec, 50.0)  # default integration time 50 ms
-                self.measure(ispec)
-            return True, f"Spectrometer {serial_str} initialized successfully"
+            self.data_status[spec_id] = 'READY'
+            self.recovery_level[spec_id] = 0
+            self.recovery_history[spec_id] = []
+            self.measurement_stats[spec_id] = {'durations': [], 'avg_time': 0}
+            # Optionally, perform a test measurement to verify everything works
+            if do_test:
+                self.set_it(spec_id, 50.0)  # default integration time 50 ms for test
+                self.measure(spec_id)
+            success = True
+            message = f"Spectrometer {serial_str} initialized successfully."
         except Exception as e:
-            return False, f"Reset failed: {e}"
+            success = False
+            message = f"Spectrometer reset failed: {e}"
+        return success, message
 
-    def disconnect(self, ispec, dofree=False):
-        """Disconnects from a spectrometer and optionally frees resources."""
-        if ispec in self.handles:
-            try:
-                stop_measurement(self.handles[ispec]['handle'])
-                # (For Hamamatsu, its internal disconnect will be handled when the object is deleted or program exits)
-                if dofree:
-                    # Free additional resources if needed (e.g., AVS_Done for Avantes handled globally)
-                    pass
-                del self.handles[ispec]
-                return True, "Disconnected successfully"
-            except Exception as e:
-                return False, f"Disconnect error: {e}"
-        return False, "No spectrometer connected"
+    def disconnect(self, spec_id, free_interface=False):
+        """
+        Disconnect the spectrometer identified by `spec_id`.
+        If `free_interface` is True, also free the underlying interface/driver.
+        """
+        if spec_id not in self.handles:
+            return True
+        handle_obj = self.handles[spec_id]['handle']
+        try:
+            # Check if handle is an Avantes handle (ctypes pointer or int) or a Hama3_Spectrometer instance
+            if isinstance(handle_obj, ctypes.c_void_p) or isinstance(handle_obj, int):
+                # Avantes spectrometer
+                AVS_Deactivate(handle_obj)
+                if free_interface:
+                    AVS_Done()
+            else:
+                # Hamamatsu spectrometer
+                handle_obj.disconnect(dofree=free_interface)
+            # Clean up stored info
+            self.handles.pop(spec_id, None)
+            self.data_status.pop(spec_id, None)
+            self.recovery_level.pop(spec_id, None)
+            self.recovery_history.pop(spec_id, None)
+            self.measurement_stats.pop(spec_id, None)
+            return True
+        except Exception as e:
+            print(f"Error disconnecting spectrometer: {e}")
+            return False
+
 
     def set_it(self, ispec, it):
         """Sets the integration time (with bounds checking) for the active spectrometer."""
