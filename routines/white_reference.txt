@@ -1,0 +1,8 @@
+# White reference collection
+log Starting white reference
+filter position 1
+wait 2000
+spectrometer start
+wait 5000
+spectrometer save
+log White reference complete

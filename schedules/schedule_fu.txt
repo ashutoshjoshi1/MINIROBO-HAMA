@@ -1,0 +1,57 @@
+# Full Spectrum (FU) Schedule
+# Created for comprehensive spectral measurements# Commands run sequentially with wait times in milliseconds
+# Start with a log message
+log Starting Full Spectrum Schedule
+# Position the motor at 90 degrees (horizon)motor move 90
+wait 2000
+# Set filter wheel to position 2 (Open filter)filter position 2
+wait 1000
+# Start spectrometer with appropriate settingsspectrometer start
+wait 3000
+# Save the first measurementlog Saving full spectrum data with open filter
+spectrometer savewait 1000
+# Change filter and save another measurement
+filter position 3wait 1000
+log Saving full spectrum data with filter 3spectrometer save
+wait 1000
+# Move to 135 degreesmotor move 135
+wait 2000
+# Save another measurementlog Saving full spectrum data at 135 degrees
+spectrometer savewait 1000
+# Set temperature to optimal value
+temp setpoint 18.0wait 1000
+# Move to 180 degrees
+motor move 180wait 2000
+# Final measurement
+log Saving full spectrum data at 180 degreesspectrometer save
+wait 1000
+# Complete the schedule
+log Full Spectrum Schedule completed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

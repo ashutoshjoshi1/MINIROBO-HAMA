@@ -1,0 +1,18 @@
+# Filter sequence test
+log Starting filter sequence
+filter position 1
+wait 2000
+spectrometer start
+wait 3000
+spectrometer save
+filter position 2
+wait 2000
+spectrometer start
+wait 3000
+spectrometer save
+filter position 3
+wait 2000
+spectrometer start
+wait 3000
+spectrometer save
+log Filter sequence complete

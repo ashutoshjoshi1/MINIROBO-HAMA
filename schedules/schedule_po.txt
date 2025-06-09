@@ -1,0 +1,289 @@
+# Start with a log message
+log Starting Sample Observation Schedule
+# Start spectrometer measurement
+spectrometer start
+wait 2000
+# Position the motor at 0 degrees (zenith)motor move 0
+wait 1000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 10 degrees
+motor move 10
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 20 degrees
+motor move 20
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 30 degrees
+motor move 30
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 40 degrees
+motor move 40
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 50 degrees
+motor move 50
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 60 degrees
+motor move 60
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 70 degrees
+motor move 70
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 80 degrees
+motor move 80
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 90 degrees
+motor move 90
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 100 degrees
+motor move 100
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 110 degrees
+motor move 110
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 120 degrees
+motor move 120
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 130 degrees
+motor move 130
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 140 degrees
+motor move 140
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 150 degrees
+motor move 150
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 160 degrees
+motor move 160
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 170 degrees
+motor move 170
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Move to 180 degrees
+motor move 180
+wait 2000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 1000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer save
+wait 1000

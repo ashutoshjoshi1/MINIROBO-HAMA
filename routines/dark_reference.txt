@@ -1,0 +1,8 @@
+# Dark reference collection
+log Starting dark reference
+filter position 6
+wait 2000
+spectrometer start
+wait 5000
+spectrometer save
+log Dark reference complete

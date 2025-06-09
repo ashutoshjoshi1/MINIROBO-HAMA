@@ -1,0 +1,10 @@
+# Standard scanning routine
+log Starting standard scan
+wait 1000
+motor move 0
+filter position 1
+wait 2000
+spectrometer start
+wait 5000
+spectrometer save
+log Standard scan complete

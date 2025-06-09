@@ -1,0 +1,57 @@
+2025-05-12 16:12:26 [INFO] Saving started
+2025-05-12 16:12:28 | Peak 301.6 (avg of 3 samples)
+2025-05-12 16:12:29 | Peak 307.9 (avg of 1 samples)
+2025-05-12 16:12:31 | Peak 302.6 (avg of 4 samples)
+2025-05-12 16:12:32 [INFO] Setting Open filter (position 2)
+2025-05-12 16:12:34 | Peak 304.0 (avg of 4 samples)
+2025-05-12 16:12:35 [INFO] Filter wheel moved to position 2.
+2025-05-12 16:12:35 [INFO] Pausing data collection: Filter changed
+2025-05-12 16:12:38 [INFO] Resuming data collection
+2025-05-12 16:12:40 | Peak 304.8 (avg of 4 samples)
+2025-05-12 16:12:43 | Peak 302.7 (avg of 4 samples)
+2025-05-12 16:12:44 [INFO] Moved to 210°
+2025-05-12 16:12:44 [INFO] Pausing data collection: Motor moved
+2025-05-12 16:12:47 [INFO] Resuming data collection
+2025-05-12 16:12:49 | Peak 301.8 (avg of 4 samples)
+2025-05-12 16:12:52 | Peak 301.2 (avg of 4 samples)
+2025-05-12 16:12:53 [INFO] Stopping measurement to update settings...
+2025-05-12 16:12:53 [INFO] Settings updated (Int: 4000.0ms, Avg: 1)
+2025-05-12 16:12:55 | Peak 303.9 (avg of 4 samples)
+2025-05-12 16:12:58 | Peak 1633.8 (avg of 4 samples)
+2025-05-12 16:13:01 | Peak 5703.5 (avg of 4 samples)
+2025-05-12 16:13:04 | Peak 5679.5 (avg of 4 samples)
+2025-05-12 16:13:07 | Peak 5655.2 (avg of 4 samples)
+2025-05-12 16:13:10 | Peak 5648.7 (avg of 4 samples)
+2025-05-12 16:13:11 [INFO] Setting Opaque filter (position 1)
+2025-05-12 16:13:11 | Peak 5629.0 (avg of 1 samples)
+2025-05-12 16:13:13 | Peak 5629.0 (avg of 4 samples)
+2025-05-12 16:13:14 [INFO] Filter wheel reset to position 1.
+2025-05-12 16:13:14 [INFO] Pausing data collection: Filter changed
+2025-05-12 16:13:17 [INFO] Resuming data collection
+2025-05-12 16:13:17 | Peak 5474.8 (avg of 1 samples)
+2025-05-12 16:13:19 | Peak 5266.0 (avg of 4 samples)
+2025-05-12 16:13:22 | Peak 5264.6 (avg of 4 samples)
+2025-05-12 16:13:23 | Peak 5260.2 (avg of 1 samples)
+2025-05-12 16:13:25 | Peak 5260.2 (avg of 4 samples)
+2025-05-12 16:13:26 | Peak 5246.2 (avg of 1 samples)
+2025-05-12 16:13:28 | Peak 5246.2 (avg of 3 samples)
+2025-05-12 16:13:29 | Peak 5219.2 (avg of 1 samples)
+2025-05-12 16:13:31 | Peak 5219.2 (avg of 3 samples)
+2025-05-12 16:13:32 | Peak 5219.2 (avg of 1 samples)
+2025-05-12 16:13:34 | Peak 5223.5 (avg of 3 samples)
+2025-05-12 16:13:35 [INFO] Setting Open filter (position 2)
+2025-05-12 16:13:35 | Peak 5232.0 (avg of 1 samples)
+2025-05-12 16:13:37 | Peak 5232.0 (avg of 3 samples)
+2025-05-12 16:13:38 [INFO] Filter wheel moved to position 2.
+2025-05-12 16:13:38 [INFO] Pausing data collection: Filter changed
+2025-05-12 16:13:41 [INFO] Resuming data collection
+2025-05-12 16:13:41 | Peak 5621.8 (avg of 1 samples)
+2025-05-12 16:13:43 | Peak 5621.8 (avg of 3 samples)
+2025-05-12 16:13:44 | Peak 5621.8 (avg of 1 samples)
+2025-05-12 16:13:46 | Peak 5627.2 (avg of 3 samples)
+2025-05-12 16:13:49 | Peak 5638.0 (avg of 4 samples)
+2025-05-12 16:13:52 | Peak 5588.2 (avg of 4 samples)
+2025-05-12 16:13:53 | Peak 5588.2 (avg of 1 samples)
+2025-05-12 16:13:55 | Peak 5743.2 (avg of 4 samples)
+2025-05-12 16:13:56 | Peak 5743.2 (avg of 1 samples)
+2025-05-12 16:13:58 | Peak 5874.4 (avg of 4 samples)
