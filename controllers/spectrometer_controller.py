@@ -9,15 +9,14 @@ import pyqtgraph as pg
 from pyqtgraph import ViewBox
 import numpy as np
 import os
-import threading
-import time
 
 from drivers.spectrometer import (
     connect_spectrometer,
+    AVS_MeasureCallback, AVS_MeasureCallbackFunc,
     AVS_GetScopeData, StopMeasureThread,
-    prepare_measurement,
-    start_measurement
+    prepare_measurement
 )
+
 
 class SpectrometerController(QObject):
     """
@@ -27,9 +26,8 @@ class SpectrometerController(QObject):
 
     status_signal = pyqtSignal(str)
 
-    @property
     def is_ready(self):
-        """True once a spectrometer has been successfully connected."""
+        """Return True once a spectrometer has been successfully connected."""
         return getattr(self, '_ready', False)
 
     def __init__(self, parent=None):
@@ -38,9 +36,11 @@ class SpectrometerController(QObject):
 
         # --- UI Setup ---
         self.groupbox = QGroupBox("Spectrometer")
+        # NOTE: No stylesheet applied to the QGroupBox here.
+
         main_layout = QVBoxLayout()
 
-        # Buttons: Connect / Start / Stop / Save
+        # Buttons: Connect / Start / Stop / Save / Toggle
         btn_layout = QHBoxLayout()
         self.connect_btn = QPushButton("Connect")
         self.connect_btn.clicked.connect(self.connect)
@@ -56,17 +56,23 @@ class SpectrometerController(QObject):
         self.stop_btn.clicked.connect(self.stop)
         btn_layout.addWidget(self.stop_btn)
 
-        self.save_btn = QPushButton("Save Spectrum")
+        self.save_btn = QPushButton("Save")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save)
         btn_layout.addWidget(self.save_btn)
+
+        self.toggle_btn = QPushButton("Start Saving")
+        self.toggle_btn.setEnabled(False)
+        self.toggle_btn.clicked.connect(self.toggle)
+        btn_layout.addWidget(self.toggle_btn)
+
         main_layout.addLayout(btn_layout)
 
         # Integration time setting
         integ_layout = QHBoxLayout()
         integ_layout.addWidget(QLabel("Integration Time (ms):"))
         self.integ_spinbox = QSpinBox()
-        self.integ_spinbox.setRange(1, 10000)
+        self.integ_spinbox.setRange(1, 4000)
         self.integ_spinbox.setValue(5)
         self.integ_spinbox.setSingleStep(5)
         integ_layout.addWidget(self.integ_spinbox)
@@ -76,29 +82,53 @@ class SpectrometerController(QObject):
         integ_layout.addWidget(self.apply_btn)
         main_layout.addLayout(integ_layout)
 
+        # Cycles & Repetitions
+        cycles_layout = QHBoxLayout()
+        cycles_layout.addWidget(QLabel("Cycles:"))
+        self.cycles_spinbox = QSpinBox()
+        self.cycles_spinbox.setRange(1, 100)
+        self.cycles_spinbox.setValue(1)
+        cycles_layout.addWidget(self.cycles_spinbox)
+        cycles_layout.addWidget(QLabel("Repetitions:"))
+        self.repetitions_spinbox = QSpinBox()
+        self.repetitions_spinbox.setRange(1, 100)
+        self.repetitions_spinbox.setValue(1)
+        cycles_layout.addWidget(self.repetitions_spinbox)
+        main_layout.addLayout(cycles_layout)
+
         # Plot setup
         pg.setConfigOption('background', '#252525')
         pg.setConfigOption('foreground', '#e0e0e0')
+        pg.setConfigOption('antialias', False)
+        pg.setConfigOption('useOpenGL', True)
+
         self.plot_px = pg.PlotWidget()
         self.plot_px.setLabel('bottom', 'Pixel')
-        self.plot_px.setLabel('left', 'Intensity (Counts)')
+        self.plot_px.setLabel('left', 'Count')
         self.plot_px.getViewBox().enableAutoRange(ViewBox.YAxis, True)
-        self.plot_px.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_px.getViewBox().setAutoVisible(y=True)
+        self.plot_px.showGrid(x=False, y=False)
+        self.plot_px.setXRange(0, 2048)
+        x_axis = self.plot_px.getAxis('bottom')
+        ticks = [(i, str(i)) for i in range(0, 2049, 100)]
+        x_axis.setTicks([ticks])
+
         self.curve_px = self.plot_px.plot(
-            pen=pg.mkPen('#f44336', width=2)
+            [], [],
+            pen=pg.mkPen('#f44336', width=2),
+            fillLevel=0,
+            fillBrush=pg.mkBrush(244, 67, 54, 50),
+            skipFiniteCheck=True
         )
         main_layout.addWidget(self.plot_px)
+
         self.groupbox.setLayout(main_layout)
 
         # Internal state
         self._ready = False
         self.handle = None
         self.npix = 0
-        self.intens = np.array([])
-        self.measure_active = False
-        self._auto_connect = True
-        self._is_hama = False
-        self._measurement_thread = None
+        self.intens = []
 
         # Ensure data dir exists
         self.csv_dir = "data"
@@ -107,217 +137,192 @@ class SpectrometerController(QObject):
         # Plot update timer
         self.plot_timer = QTimer(self)
         self.plot_timer.timeout.connect(self._update_plot)
-        
+        self.plot_timer.start(50)
+
         # Auto-connect on startup
+        self._auto_connect = True
         QTimer.singleShot(500, self.connect)
 
 
     def connect(self):
-        """Auto-detect and connect to a spectrometer."""
-        if self.is_ready:
-            self.status_signal.emit("Already connected.")
-            return
+        """Auto-detect and connect to Hamamatsu or Avantes spectrometer."""
         self.status_signal.emit("Connecting to spectrometer...")
         try:
             handle, wls, num_pixels, serial = connect_spectrometer()
         except Exception as e:
             self.status_signal.emit(f"Connection failed: {e}")
             if self._auto_connect:
-                QTimer.singleShot(5000, self.connect) # Retry after 5s
+                QTimer.singleShot(5000, self.connect)
             return
 
         self.handle = handle
         self.npix = num_pixels
         self._ready = True
-        self._auto_connect = False
-        self.connect_btn.setText("Disconnect")
-        self.connect_btn.clicked.disconnect()
-        self.connect_btn.clicked.connect(self.disconnect)
 
-        self._is_hama = hasattr(self.handle, 'spec_type') and self.handle.spec_type == 'hama'
+        # Update X-axis
+        self.plot_px.setXRange(0, self.npix)
+        x_axis = self.plot_px.getAxis('bottom')
+        ticks = [(i, str(i)) for i in range(0, self.npix+1, 100)]
+        x_axis.setTicks([ticks])
 
-        self.plot_px.setXRange(0, self.npix, padding=0)
-        
         self.start_btn.setEnabled(True)
-        self.apply_btn.setEnabled(self._is_hama) # Only enable apply for Hamamatsu for now
-        spec_type = "Hamamatsu" if self._is_hama else "Avantes"
-        self.status_signal.emit(f"{spec_type} spectrometer ready (SN={serial})")
+        self.apply_btn.setEnabled(True)
+        self.status_signal.emit(f"Spectrometer ready (SN={serial})")
+        self._auto_connect = False
 
 
     def start(self):
         """Begin live measurement and plotting."""
-        if not self._ready or self.measure_active:
+        if not self.is_ready():
+            self.status_signal.emit("Spectrometer not ready")
             return
 
-        self.measure_active = True
-        self.plot_timer.start(50)
+        itime = float(self.integ_spinbox.value())
+        cycles = self.cycles_spinbox.value()
+        reps = self.repetitions_spinbox.value()
 
-        if self._is_hama:
-            self._start_hama()
-        else:
-            self._start_avantes()
+        # Hamamatsu vs Avantes auto-detect by handle type
+        if hasattr(self.handle, 'set_it'):
+            # Hamamatsu
+            if self.handle.set_it(itime) != "OK":
+                self.status_signal.emit("Failed to set integration time")
+                return
+            self.status_signal.emit("Starting Hamamatsu measurement")
+            self.measure_active = True
+            self.start_btn.setEnabled(False)
+            self.stop_btn.setEnabled(True)
 
-        self.start_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.apply_btn.setEnabled(False)
-
-
-    def _start_hama(self):
-        """Start measurement loop for Hamamatsu."""
-        self.status_signal.emit("Starting Hamamatsu measurement...")
-        self.update_measurement_settings()
-        
-        def measurement_loop():
-            while self.measure_active:
-                try:
-                    res = self.handle.measure(ncy=1)
-                    if res != "OK":
-                        self.status_signal.emit(f"Hama measure failed: {res}")
+            import threading
+            def loop():
+                count = 0
+                while self.measure_active and (reps < 0 or count < reps):
+                    if self.handle.measure(ncy=cycles) != "OK":
                         break
                     self.handle.wait_for_measurement()
                     data = self.handle.rcm
-                    if data is not None and len(data) >= self.npix:
-                        self.intens = np.array(data[:self.npix], dtype=float)
-                        if not self.save_btn.isEnabled():
-                            # Use QTimer to safely update UI from thread
-                            QTimer.singleShot(0, lambda: self.save_btn.setEnabled(True))
-                    time.sleep(0.001) # Small delay to prevent busy-waiting
-                except Exception as e:
-                    self.status_signal.emit(f"Hama measurement error: {e}")
-                    break
-            # When loop finishes, signal the main thread to stop
-            if self.measure_active:
-                 QTimer.singleShot(0, self.stop)
+                    if data is not None and len(data) == self.handle.npix_active:
+                        self.intens = list(data[:self.npix])
+                    count += 1
+                QTimer.singleShot(0, self._on_stop)
 
-        self._measurement_thread = threading.Thread(target=measurement_loop, daemon=True)
-        self._measurement_thread.start()
+            self._thread = threading.Thread(target=loop, daemon=True)
+            self._thread.start()
+            return
 
-
-    def _start_avantes(self):
-        """Start measurement loop for Avantes."""
-        self.status_signal.emit("Starting Avantes measurement...")
-        itime = float(self.integ_spinbox.value())
+        # Avantes
         averages = 1
-        if itime <= 10: averages = 10
-        elif itime <= 100: averages = 5
-        
-        code = prepare_measurement(self.handle, self.npix, itime, averages)
+        if itime < 10: averages = 10
+        elif itime < 100: averages = 5
+        elif itime < 1000: averages = 2
+
+        self.status_signal.emit("Starting Avantes measurement")
+        code = prepare_measurement(self.handle, self.npix, itime, averages, cycles, reps)
         if code != 0:
-            self.status_signal.emit(f"Avantes Prepare error: {code}")
-            self.stop()
+            self.status_signal.emit(f"Prepare error: {code}")
             return
 
-        err = start_measurement(self.handle, self._avantes_callback, -1)
+        self.measure_active = True
+        self.cb = AVS_MeasureCallbackFunc(self._cb)
+        err = AVS_MeasureCallback(self.handle, self.cb, -1)
         if err != 0:
-            self.status_signal.emit(f"Avantes start error: {err}")
-            self.stop()
+            self.status_signal.emit(f"Callback error: {err}")
+            self.measure_active = False
             return
 
-    def _avantes_callback(self, handle_ptr, error_code_ptr):
-        """Avantes SDK callback—stores latest intensity array."""
-        if not self.measure_active:
-            return
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
 
-        if error_code_ptr[0] == 0:
-            err, data = AVS_GetScopeData(self.handle)
-            if err == 0:
-                self.intens = np.array(data[:self.npix], dtype=float)
-                if not self.save_btn.isEnabled():
-                    QTimer.singleShot(0, lambda: self.save_btn.setEnabled(True))
+
+    def _cb(self, p_data, p_user):
+        """Avantes callback—stores latest intensity array."""
+        if p_user[0] == 0:
+            _, data = AVS_GetScopeData(self.handle)
+            arr = data[:self.npix] if len(data) >= self.npix else data + [0]*(self.npix-len(data))
+            self.intens = list(arr)
+            self.save_btn.setEnabled(True)
+            self.toggle_btn.setEnabled(True)
         else:
-            self.status_signal.emit(f"Avantes measurement error code {error_code_ptr[0]}")
+            self.status_signal.emit(f"Measurement error code {p_user[0]}")
 
 
     def _update_plot(self):
         """Refresh the pyqtgraph plot with the newest data."""
-        if self.intens.size > 0:
-            self.curve_px.setData(self.intens)
+        if not self.intens:
+            return
+        y = np.array(self.intens, dtype=float)
+        x = np.arange(len(y))
+        self.curve_px.setData(x, y)
+        # Auto-scale Y occasionally
+        if hasattr(self, '_yrange_counter'):
+            self._yrange_counter += 1
+        else:
+            self._yrange_counter = 1
+        if self._yrange_counter >= 10:
+            self._yrange_counter = 0
+            m = float(np.max(y)) * 1.1
+            if m > 0:
+                self.plot_px.setYRange(0, m)
 
 
     def stop(self):
         """Stop any ongoing measurement."""
-        if not self.measure_active:
+        if not getattr(self, 'measure_active', False):
             return
-            
         self.measure_active = False
-        self.plot_timer.stop()
 
-        if self._is_hama:
+        # Hamamatsu abort
+        if hasattr(self.handle, 'abort'):
             try:
                 self.handle.abort()
-            except Exception as e:
-                print(f"Ignoring error during Hamamatsu abort: {e}")
-            # Thread will exit on its own
-            self._on_stop_complete()
-        else: # Avantes
-            stopper = StopMeasureThread(self.handle, parent=self)
-            stopper.finished_signal.connect(self._on_stop_complete)
-            stopper.start()
+            except Exception:
+                pass
+            if hasattr(self, '_thread') and self._thread.is_alive():
+                self._thread.join(timeout=1)
+            self._on_stop()
+            return
 
-    def _on_stop_complete(self):
+        # Avantes stop thread
+        stopper = StopMeasureThread(self.handle, parent=self)
+        stopper.finished_signal.connect(self._on_stop)
+        stopper.start()
+
+
+    def _on_stop(self):
         """Reset UI once measurement finishes."""
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        self.apply_btn.setEnabled(self._is_hama)
-        self.status_signal.emit("Measurement stopped.")
+        self.status_signal.emit("Measurement stopped")
 
 
     def save(self):
-        """Save current spectrum to a CSV file."""
-        if self.intens.size == 0:
-            self.status_signal.emit("No data to save.")
+        """Save current spectrum to CSV."""
+        if not self.intens:
             return
         ts = QDateTime.currentDateTime().toString("yyyyMMdd_hhmmss")
         fn = os.path.join(self.csv_dir, f"spectrum_{ts}.csv")
         try:
-            header = "Pixel,Intensity"
-            np.savetxt(fn, np.c_[np.arange(self.npix), self.intens], delimiter=',', header=header, comments='')
-            self.status_signal.emit(f"Spectrum saved to: {os.path.basename(fn)}")
+            with open(fn, 'w') as f:
+                f.write("Pixel,Intensity\n")
+                for i, v in enumerate(self.intens):
+                    f.write(f"{i},{v}\n")
+            self.status_signal.emit(f"Saved: {fn}")
         except Exception as e:
             self.status_signal.emit(f"Save failed: {e}")
 
 
-    def update_measurement_settings(self):
-        """Apply new integration time (for Hamamatsu)."""
-        if not self._ready or not self._is_hama:
-            if self.measure_active:
-                self.status_signal.emit("Settings can only be changed for Hamamatsu while running.")
-            return
+    def toggle(self):
+        """Placeholder for continuous saving toggle (connect to parent handler)."""
+        pass
 
+
+    def update_measurement_settings(self):
+        """Apply new integration time or other settings mid-run if supported."""
         new_it = float(self.integ_spinbox.value())
-        try:
+        if hasattr(self.handle, 'set_it'):
             res = self.handle.set_it(new_it)
             if res == "OK":
                 self.status_signal.emit(f"Integration time set to {new_it} ms")
             else:
-                self.status_signal.emit(f"Failed to set IT: {res}")
-        except Exception as e:
-            self.status_signal.emit(f"Error setting IT: {e}")
-
-
-    def disconnect(self):
-        """Disconnects the spectrometer and resets the UI."""
-        if self.measure_active:
-            self.stop()
-        
-        if self._ready:
-            if self._is_hama:
-                self.handle.disconnect()
-            else: # Avantes
-                from drivers.spectrometer import AVS_Deactivate, AVS_Done
-                AVS_Deactivate(self.handle)
-                AVS_Done()
-        
-        self.handle = None
-        self._ready = False
-        self.intens = np.array([])
-        
-        self.connect_btn.setText("Connect")
-        if not self.connect_btn.receivers(self.connect_btn.clicked):
-            self.connect_btn.clicked.connect(self.connect)
-
-        self.start_btn.setEnabled(False)
-        self.stop_btn.setEnabled(False)
-        self.apply_btn.setEnabled(False)
-        self.save_btn.setEnabled(False)
-        self.status_signal.emit("Spectrometer disconnected.")
+                self.status_signal.emit(f"Failed to update IT: {res}")
+        else:
+            self.status_signal.emit("New settings will apply on next start")
