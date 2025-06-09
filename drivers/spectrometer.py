@@ -14,109 +14,110 @@ try:
 except ImportError as e:
     raise ImportError("AvaSpec SDK import failed. Make sure avaspec.pyd and avaspec DLL are in the same directory as main.py.") from e
 
-# Try importing Hamamatsu spectrometer support
+import os
+
+# Try import Hamamatsu
 try:
     from hama3_spectrometer import Hama3_Spectrometer
 except ImportError:
     Hama3_Spectrometer = None
 
-class StopMeasureThread(QThread):
-    finished_signal = pyqtSignal()
-    def __init__(self, spec_handle, parent=None):
-        super().__init__(parent)
-        self.spec_handle = spec_handle
-    def run(self):
-        AVS_StopMeasure(self.spec_handle)
-        self.finished_signal.emit()
+# Try import Avantes
+try:
+    from avantes_spectrometer import Avantes_Spectrometer
+except ImportError:
+    Avantes_Spectrometer = None
 
-def connect_spectrometer():
-    # Try Hamamatsu spectrometer first
-    if Hama3_Spectrometer is not None:
-        try:
-            print("Trying to connect to Hamamatsu...")
-            hama = Hama3_Spectrometer()
-            # Configure Hamamatsu spectrometer parameters
-            hama.dll_path = r"spec_hama3\DcIcUSB_v1.1.0.7\x64\DcIcUSB.dll"  # Set DLL path for Hamamatsu SDK
-            hama.sn = "b'46AN0776'"  # Update serial number if different
-            hama.debug_mode = 1
-            hama.alias = "1"
-            hama.npix_active = 4096
-            hama.initialize_spec_logger()
-            res = hama.connect()
-            if res == "OK":
-                # Set a default integration time (e.g., 50 ms)
-                set_res = hama.set_it(50.0)
-                if set_res != "OK":
-                    print(f"Warning: Hamamatsu spectrometer set_it failed: {set_res}")
-                spec = hama
-                serial_str = spec.sn
-                # Clean up serial string for display (remove b' prefix if present)
-                if isinstance(serial_str, str) and serial_str.startswith("b'"):
-                    serial_str = serial_str[2:-1]
-                wavelengths = list(range(spec.npix_active))  # Use pixel indices as wavelengths (no built-in calibration provided)
-                num_pixels = spec.npix_active
-                return spec, wavelengths, num_pixels, serial_str
-            else:
-                print(f"Hamamatsu connection failed: {res}")
-        except Exception as e:
-            print(f"Hamamatsu connection failed: {e}")
-    # If Hamamatsu not connected, try Avantes
-    try:
-        print("[DEBUG] Calling AVS_Init(0)...")
-        ret = AVS_Init(0)
-    except Exception as e:
-        raise Exception(f"Spectrometer initialization failed: {e}")
-    if ret <= 0:
-        AVS_Done()
-        if ret == 0:
-            raise Exception("No spectrometer found.")
-        elif 'ERR_ETHCONN_REUSE' in globals() and ret == ERR_ETHCONN_REUSE:
-            raise Exception("Spectrometer already in use by another program.")
-        else:
-            raise Exception(f"AVS_Init error (code {ret}).")
+class Spectrometer:
+    def __init__(self):
+        self.device = None
+        self.type = None
+        self.npix = 0
+        self.connected = False
+        self.status = ""
+        self.sn = None
 
-    dev_count = AVS_UpdateUSBDevices()
-    if dev_count < 1:
-        AVS_Done()
-        raise Exception("No spectrometer found after update.")
+    def connect(self):
+        # Try Hamamatsu first
+        if Hama3_Spectrometer is not None:
+            try:
+                hama = Hama3_Spectrometer()
+                hama.dll_path = r"spec_hama3\DcIcUSB_v1.1.0.7\x64\DcIcUSB.dll"
+                hama.sn = "b'46AN0776'"  # Update if needed
+                hama.debug_mode = 1
+                hama.npix_active = 4096
+                hama.initialize_spec_logger()
+                res = hama.connect()
+                if res == "OK":
+                    hama.set_it(5)
+                    self.device = hama
+                    self.type = "hamamatsu"
+                    self.npix = 4096
+                    self.connected = True
+                    self.sn = hama.sn
+                    self.status = "Connected to Hamamatsu"
+                    return True
+            except Exception as e:
+                self.status = f"Hamamatsu error: {e}"
+        
+        # Try Avantes
+        if Avantes_Spectrometer is not None:
+            try:
+                ava = Avantes_Spectrometer()
+                ava.dll_path = r"/spec_ava1/Avaspec-DLL_9.14.0.9_64bits/avaspecx64.dll"
+                ava.sn = "2203162U1"
+                ava.npix_active = 2048
+                ava.debug_mode = 1
+                ava.initialize_spec_logger()
+                res = ava.connect()
+                if res == "OK":
+                    ava.set_it(5)
+                    self.device = ava
+                    self.type = "avantes"
+                    self.npix = 2048
+                    self.connected = True
+                    self.sn = ava.sn
+                    self.status = "Connected to Avantes"
+                    return True
+            except Exception as e:
+                self.status = f"Avantes error: {e}"
+        self.status = "No spectrometer connected"
+        self.connected = False
+        return False
 
-    id_list = AVS_GetList(dev_count)
-    if not id_list:
-        AVS_Done()
-        raise Exception("Failed to retrieve spectrometer list.")
+    def set_it(self, it_ms):
+        if self.device:
+            return self.device.set_it(it_ms)
+        return "No device"
 
-    dev_id = id_list[0]
-    serial_str = dev_id.SerialNumber.decode().strip() if hasattr(dev_id.SerialNumber, 'decode') else str(dev_id.SerialNumber)
+    def measure(self, ncy=1):
+        if self.device:
+            return self.device.measure(ncy)
+        return "No device"
 
-    avs_id = AvsIdentityType()
-    avs_id.SerialNumber = dev_id.SerialNumber
-    avs_id.UserFriendlyName = b"\x00"
-    avs_id.Status = b'\x01'
-    spec_handle = AVS_Activate(avs_id)
-    if spec_handle == INVALID_AVS_HANDLE_VALUE:
-        AVS_Done()
-        raise Exception(f"Error opening spectrometer (Serial: {serial_str})")
+    def wait_for_measurement(self):
+        if self.device:
+            return self.device.wait_for_measurement()
+        return None
 
-    device_data = AVS_GetParameter(spec_handle, 63484)
-    if device_data is None:
-        AVS_Done()
-        raise Exception("Failed to get spectrometer parameters.")
+    def get_counts(self):
+        # returns list/array of counts of length npix
+        if self.device and hasattr(self.device, 'rcm'):
+            return self.device.rcm
+        return [0]*self.npix
 
-    num_pixels = device_data.m_Detector_m_NrPixels
-    start_pixel = getattr(device_data, 'm_StandAlone_m_Meas_m_StartPixel', 0)
-    stop_pixel = getattr(device_data, 'm_StandAlone_m_Meas_m_StopPixel', num_pixels - 1)
-    if start_pixel < 0:
-        start_pixel = 0
-    if stop_pixel <= start_pixel or stop_pixel > num_pixels - 1:
-        stop_pixel = num_pixels - 1
+    def disconnect(self):
+        if self.device:
+            try:
+                self.device.disconnect(dofree=True)
+            except Exception:
+                pass
+        self.device = None
+        self.type = None
+        self.npix = 0
+        self.connected = False
 
-    wavelengths = AVS_GetLambda(spec_handle)
-    if wavelengths:
-        wavelengths = np.ctypeslib.as_array(wavelengths)
-    else:
-        wavelengths = list(range(num_pixels))
 
-    return spec_handle, wavelengths, num_pixels, serial_str
 
 def prepare_measurement(spec_handle, num_pixels, integration_time_ms=50.0, averages=1, cycles=1, repetitions=1):
     meas_cfg = MeasConfigType()
