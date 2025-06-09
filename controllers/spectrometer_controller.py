@@ -26,9 +26,8 @@ class SpectrometerController(QObject):
 
     status_signal = pyqtSignal(str)
 
-    @property
     def is_ready(self):
-        """True once a spectrometer has been successfully connected."""
+        """Return True once a spectrometer has been successfully connected."""
         return getattr(self, '_ready', False)
 
     def __init__(self, parent=None):
@@ -172,7 +171,7 @@ class SpectrometerController(QObject):
 
     def start(self):
         """Begin live measurement and plotting."""
-        if not self._ready:
+        if not self.is_ready():
             self.status_signal.emit("Spectrometer not ready")
             return
 
@@ -186,7 +185,7 @@ class SpectrometerController(QObject):
             if self.handle.set_it(itime) != "OK":
                 self.status_signal.emit("Failed to set integration time")
                 return
-            self.status_signal.emit(f"Starting Hamamatsu measurement")
+            self.status_signal.emit("Starting Hamamatsu measurement")
             self.measure_active = True
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
