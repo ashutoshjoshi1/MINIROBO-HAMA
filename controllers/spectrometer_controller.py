@@ -21,6 +21,8 @@ class SpectrometerController(QObject):
 
         # --- UI Setup ---
         self.groupbox = QGroupBox("Spectrometer")
+        self.groupbox.setStyleSheet("QGroupBox { color: white; }") 
+
         main_layout = QVBoxLayout()
 
         btn_layout = QHBoxLayout()
