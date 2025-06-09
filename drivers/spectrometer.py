@@ -36,7 +36,7 @@ def connect_spectrometer():
             print("Trying to connect to Hamamatsu...")
             hama = Hama3_Spectrometer()
             # Configure Hamamatsu spectrometer parameters
-            hama.dll_path = r"spec_hama3\DcIcUSB_v1.1.0.7\x64\DcIcUSB.dll"  # Set DLL path for Hamamatsu SDK
+            hama.dll_path = r"DcIcUSB.dll"  # Set DLL path for Hamamatsu SDK
             hama.sn = "b'46AN0776'"  # Update serial number if different
             hama.debug_mode = 1
             hama.alias = "1"

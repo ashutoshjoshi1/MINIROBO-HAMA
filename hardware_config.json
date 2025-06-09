@@ -3,6 +3,6 @@
     "imu": "COM14",
     "motor": "COM11",
     "temp_controller": "COM13",
-    "thp_sensor": "COM10"
+    "thp_sensor": "COM3"
   }
   
