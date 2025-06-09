@@ -1,326 +1,450 @@
 import sys
+import os
+import json
+import numpy as np
+import cv2
+
 from PyQt5.QtWidgets import (
-    QMainWindow, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QComboBox, QGroupBox, QGridLayout,
-    QTextEdit, QTabWidget, QSplitter, QSizePolicy, QAction, QFileDialog
+    QMainWindow, QWidget, QVBoxLayout, QGridLayout, QSplitter,
+    QLabel, QPushButton, QStatusBar, QMessageBox, QHBoxLayout, QGroupBox,
+    QApplication, QComboBox, QFileDialog, QSpinBox, QDoubleSpinBox, QLineEdit
 )
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import Qt, QTimer
-from pyqtgraph import PlotWidget
-import pyqtgraph as pg
+from PyQt5.QtCore import QTimer, Qt, QDateTime
+from PyQt5.QtGui import QImage, QPixmap
 
-from gui.components.camera_manager import CameraManager
-from gui.components.data_logger import DataLogger
-from gui.components.routine_manager import RoutineManager
-from gui.components.ui_manager import UIManager
-
-# Import controllers
-from controllers.spectrometer_controller import SpectrometerController
 from controllers.motor_controller import MotorController
-from controllers.filterwheel_controller import FilterwheelController
+from controllers.filterwheel_controller import FilterWheelController
 from controllers.imu_controller import IMUController
+from controllers.spectrometer_controller import SpectrometerController
 from controllers.temp_controller import TempController
 from controllers.thp_controller import THPController
 
+from gui.components.data_logger import DataLogger
+from gui.components.routine_manager import RoutineManager
+from gui.components.camera_manager import CameraManager
+from gui.components.ui_manager import UIManager
+
 class MainWindow(QMainWindow):
-    def __init__(self, spectrometer_type, spectrometer_dll_path, spectrometer_kwargs):
-        super().__init__()
-
-        self.setWindowTitle("Mini ROBOHyPO Control")
-        self.setGeometry(100, 100, 1600, 900)
-
-        # --- Initialize Controllers ---
-        self.spectrometer_controller = SpectrometerController(
-            spec_type=spectrometer_type,
-            dll_path=spectrometer_dll_path,
-            **spectrometer_kwargs
-        )
-        self.motor_controller = MotorController(port="COM3") # Example port
-        self.filterwheel_controller = FilterwheelController(port="COM4") # Example port
-        self.imu_controller = IMUController(port="COM5") # Example port
-        self.temp_controller = TempController(port="COM6") # Example port
-        self.thp_controller = THPController(port="COM7") # Example port
-
-
-        # --- Initialize UI Managers and Components ---
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Mini ROBOHyPO")
+        
+        # Get screen size and set window size proportionally
+        screen_rect = QApplication.desktop().availableGeometry()
+        screen_width, screen_height = screen_rect.width(), screen_rect.height()
+        
+        # Set window size to 90% of screen size
+        window_width = int(screen_width * 0.9)
+        window_height = int(screen_height * 0.9)
+        self.resize(window_width, window_height)
+        
+        # Set minimum size proportional to screen size
+        min_width = min(1280, int(screen_width * 0.7))
+        min_height = min(800, int(screen_height * 0.7))
+        self.setMinimumSize(min_width, min_height)
+        
+        # Add flag to prevent overlapping updates
+        self._updating = False
+        self._hardware_changing = False
+        self._integration_changing = False
+        
+        # Initialize UI manager
         self.ui_manager = UIManager(self)
-        self.data_logger = DataLogger()
-        self.camera_manager = CameraManager()
-        self.routine_manager = RoutineManager(
-            self.spectrometer_controller,
-            self.motor_controller,
-            self.filterwheel_controller,
-            self.data_logger
-        )
+        self.ui_manager.setup_ui_style()
+        
+        # Load configuration
+        self.config = {}
+        try:
+            config_path = os.path.join(os.path.dirname(__file__), "..", "hardware_config.json")
+            with open(config_path, 'r') as cfg_file:
+                self.config = json.load(cfg_file)
+        except Exception as e:
+            print(f"Config load error: {e}")
 
+        self.latest_data = {}
+        self.pixel_counts = []
+        
+        # Initialize components
+        self.data_logger = DataLogger(self)
+        self.routine_manager = RoutineManager(self)
+        self.camera_manager = CameraManager(self)
+        
+        # Initialize hardware controllers
+        self.init_controllers()
+        
+        # Set up the main UI layout
+        self.setup_ui()
+        
+        # Initialize hardware state tracking variables
+        self._last_motor_angle = 0
+        self._last_filter_position = 0
+        
+        # Timer for hardware state change detection
+        self._hardware_change_timer = QTimer(self)
+        self._hardware_change_timer.timeout.connect(self._hardware_change_timeout)
+        
+        # Timer for updating UI indicators
+        self._indicator_timer = QTimer(self)
+        self._indicator_timer.timeout.connect(self._update_indicators)
+        self._indicator_timer.start(2000)  # Update every 2 seconds
+        
+        # Set up status bar
+        self.setStatusBar(QStatusBar())
+        self.statusBar().showMessage("Application initialized")
 
-        # --- Central Widget and Layout ---
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QHBoxLayout(self.central_widget)
+    def init_controllers(self):
+        """Initialize hardware controllers"""
+        # THP controller
+        thp_port = self.config.get("thp_sensor", "COM8")
+        self.thp_ctrl = THPController(port=thp_port, parent=self)
+        self.thp_ctrl.status_signal.connect(self.statusBar().showMessage)
+        self.thp_ctrl.status_signal.connect(self.handle_status_message)
+        
+        # Spectrometer controller
+        self.spec_ctrl = SpectrometerController(parent=self)
+        self.spec_ctrl.status_signal.connect(self.statusBar().showMessage)
+        self.spec_ctrl.status_signal.connect(self.handle_status_message)
+        
+        # Temperature controller
+        self.temp_ctrl = TempController(parent=self)
+        self.temp_ctrl.status_signal.connect(self.statusBar().showMessage)
+        self.temp_ctrl.status_signal.connect(self.handle_status_message)
+        
+        # Motor controller
+        self.motor_ctrl = MotorController(parent=self)
+        self.motor_ctrl.status_signal.connect(self.statusBar().showMessage)
+        self.motor_ctrl.status_signal.connect(self.handle_status_message)
+        
+        # Filter wheel controller
+        self.filter_ctrl = FilterWheelController(parent=self)
+        self.filter_ctrl.status_signal.connect(self.statusBar().showMessage)
+        self.filter_ctrl.status_signal.connect(self.handle_status_message)
+        
+        # IMU controller
+        self.imu_ctrl = IMUController(parent=self)
+        self.imu_ctrl.status_signal.connect(self.statusBar().showMessage)
+        self.imu_ctrl.status_signal.connect(self.handle_status_message)
 
-        # --- Create UI Sections ---
-        self.create_left_panel()
-        self.create_main_panel()
-        self.create_right_panel()
-
-        # Use a splitter to make panels resizable
+    def setup_ui(self):
+        """Set up the main UI layout"""
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QVBoxLayout(central)
+        
+        # Create a main horizontal splitter for the entire layout
         main_splitter = QSplitter(Qt.Horizontal)
-        main_splitter.addWidget(self.left_panel)
-        main_splitter.addWidget(self.main_panel)
-        main_splitter.addWidget(self.right_panel)
-        main_splitter.setSizes([250, 1100, 250]) # Initial sizes
-        self.main_layout.addWidget(main_splitter)
+        self.main_splitter = main_splitter  # Store reference for resizeEvent
+        
+        # Left side - Spectrometer (give it most of the space)
+        main_splitter.addWidget(self.spec_ctrl.groupbox)
+        
+        # Right side - All other controls in a vertical layout
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setSpacing(5)  # Reduce spacing between elements
+        
+        # Top section - Camera
+        self.cam_group = QGroupBox("Camera Feed")
+        self.cam_group.setObjectName("cameraGroup")
+        cam_layout = QVBoxLayout(self.cam_group)
+        self.cam_label = QLabel("Camera feed will appear here")
+        self.cam_label.setAlignment(Qt.AlignCenter)
+        self.cam_label.setMinimumHeight(240)  # Increase minimum height
+        self.cam_label.setStyleSheet("background-color: #1a1a1a; color: #e0e0e0; font-size: 12pt; font-weight: bold; border-radius: 5px;")
+        cam_layout.addWidget(self.cam_label)
+        right_layout.addWidget(self.cam_group)
+        
+        # Initialize camera
+        self.camera_manager.init_camera()
+        
+        # Middle section - Routine controls
+        self.routine_group = QGroupBox("Routine Control")
+        self.routine_group.setObjectName("routineGroup")
+        routine_layout = QVBoxLayout(self.routine_group)
+        
+        # Preset dropdown
+        preset_layout = QHBoxLayout()
+        preset_label = QLabel("Preset:")
+        preset_label.setStyleSheet("font-weight: bold;")
+        preset_layout.addWidget(preset_label)
+        
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItem("Custom...")
+        self.preset_combo.addItems(["Standard Scan", "Dark Reference", "White Reference", "Filter Sequence", "Temperature Test"])
+        self.preset_combo.currentIndexChanged.connect(self.preset_selected)
+        preset_layout.addWidget(self.preset_combo)
+        
+        routine_layout.addLayout(preset_layout)
+        
+        # Load and Run buttons
+        routine_btn_layout = QHBoxLayout()
+        self.load_routine_btn = QPushButton("Load File")
+        self.load_routine_btn.setStyleSheet("font-weight: bold; font-size: 11pt;")
+        self.load_routine_btn.clicked.connect(self.routine_manager.load_routine_file)
+        routine_btn_layout.addWidget(self.load_routine_btn)
+        
+        self.run_routine_btn = QPushButton("Run Code")
+        self.run_routine_btn.setStyleSheet("font-weight: bold; font-size: 11pt;")
+        self.run_routine_btn.setEnabled(False)
+        self.run_routine_btn.clicked.connect(self.routine_manager.run_routine)
+        routine_btn_layout.addWidget(self.run_routine_btn)
+        routine_layout.addLayout(routine_btn_layout)
+        
+        self.routine_status = QLabel("No routine loaded")
+        self.routine_status.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        self.routine_status.setAlignment(Qt.AlignCenter)
+        routine_layout.addWidget(self.routine_status)
+        right_layout.addWidget(self.routine_group)
+        
+        # Bottom section - 2x2 grid for controllers
+        controllers_grid = QGridLayout()
+        controllers_grid.setSpacing(5)  # Reduce spacing
 
+        # Temperature controller (top row, spans both columns)
+        self.temp_ctrl.widget.setMaximumHeight(180)  # Increased from 150 to 180
+        controllers_grid.addWidget(self.temp_ctrl.widget, 0, 0, 1, 2)  # Span both columns
 
-        # --- Connect Signals and Slots ---
-        self.connect_signals()
+        # Motor controller (middle left)
+        self.motor_ctrl.groupbox.setMaximumHeight(200)  # Limit height
+        controllers_grid.addWidget(self.motor_ctrl.groupbox, 1, 0)
 
-        # --- Start Controllers ---
-        self.spectrometer_controller.start()
-        self.motor_controller.start()
-        self.filterwheel_controller.start()
-        self.imu_controller.start()
-        self.temp_controller.start()
-        self.thp_controller.start()
+        # Filter wheel controller (middle right)
+        self.filter_ctrl.groupbox.setMaximumHeight(200)  # Limit height
+        controllers_grid.addWidget(self.filter_ctrl.groupbox, 1, 1)
 
-        # --- UI Update Timer ---
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_sensor_data)
-        self.timer.start(1000) # Update every second
+        # IMU controller (bottom left)
+        self.imu_ctrl.groupbox.setMaximumHeight(200)  # Limit height
+        controllers_grid.addWidget(self.imu_ctrl.groupbox, 2, 0)
 
-    def create_left_panel(self):
-        """Creates the left panel with hardware controls."""
-        self.left_panel = QGroupBox("Hardware Control")
-        layout = QVBoxLayout()
+        # THP controller (bottom right)
+        self.thp_ctrl.groupbox.setMaximumHeight(200)  # Limit height
+        controllers_grid.addWidget(self.thp_ctrl.groupbox, 2, 1)
+        
+        right_layout.addLayout(controllers_grid)
+        
+        # Add the right panel to the main splitter
+        main_splitter.addWidget(right_panel)
+        
+        # Set stretch factors - give spectrometer much more space
+        main_splitter.setStretchFactor(0, 4)  # Spectrometer gets 4 parts
+        main_splitter.setStretchFactor(1, 1)  # Right panel gets 1 part
+        
+        main_layout.addWidget(main_splitter)
+        
+        # Start camera update timer
+        self.camera_timer = QTimer(self)
+        self.camera_timer.timeout.connect(self.camera_manager.update_camera_feed)
+        self.camera_timer.start(100)  # 10 fps
 
-        # Spectrometer Control
-        spec_group = QGroupBox("Spectrometer")
-        spec_layout = QGridLayout()
-        self.spec_status_label = QLabel("Status: Disconnected")
-        self.integration_time_input = QLineEdit("100")
-        self.set_int_time_button = QPushButton("Set Integration Time")
-        self.take_measurement_button = QPushButton("Take Measurement")
-        spec_layout.addWidget(self.spec_status_label, 0, 0, 1, 2)
-        spec_layout.addWidget(QLabel("Integration Time (ms):"), 1, 0)
-        spec_layout.addWidget(self.integration_time_input, 1, 1)
-        spec_layout.addWidget(self.set_int_time_button, 2, 0, 1, 2)
-        spec_layout.addWidget(self.take_measurement_button, 3, 0, 1, 2)
-        spec_group.setLayout(spec_layout)
-        layout.addWidget(spec_group)
+    def preset_selected(self, index):
+        """Handle preset selection from dropdown"""
+        if index == 0:  # Custom
+            return
+        
+        preset_name = self.preset_combo.currentText()
+        self.routine_manager.load_preset_routine(preset_name)
 
-        # Motor Control
-        motor_group = QGroupBox("Motor Control")
-        motor_layout = QGridLayout()
-        self.motor_status_label = QLabel("Status: Disconnected")
-        self.zenith_pos_label = QLabel("Zenith: N/A")
-        self.azimuth_pos_label = QLabel("Azimuth: N/A")
-        self.move_za_input = QLineEdit("0")
-        self.move_az_input = QLineEdit("0")
-        self.move_abs_button = QPushButton("Move Absolute")
-        self.stop_motor_button = QPushButton("Stop")
-        motor_layout.addWidget(self.motor_status_label, 0, 0, 1, 2)
-        motor_layout.addWidget(self.zenith_pos_label, 1, 0)
-        motor_layout.addWidget(self.azimuth_pos_label, 1, 1)
-        motor_layout.addWidget(QLabel("Zenith:"), 2, 0)
-        motor_layout.addWidget(self.move_za_input, 2, 1)
-        motor_layout.addWidget(QLabel("Azimuth:"), 3, 0)
-        motor_layout.addWidget(self.move_az_input, 3, 1)
-        motor_layout.addWidget(self.move_abs_button, 4, 0)
-        motor_layout.addWidget(self.stop_motor_button, 4, 1)
-        motor_group.setLayout(motor_layout)
-        layout.addWidget(motor_group)
+    def toggle_data_saving(self):
+        """Toggle continuous data saving on/off"""
+        is_saving = self.data_logger.toggle_data_saving()
+        
+        # Update UI based on saving state
+        if is_saving:
+            self.statusBar().showMessage("Data saving started")
+            
+            # Get current integration time from spectrometer controller
+            integration_time_ms = 1000  # Default 1 second
+            if hasattr(self, 'spec_ctrl') and hasattr(self.spec_ctrl, 'current_integration_time_us'):
+                integration_time_ms = self.spec_ctrl.current_integration_time_us
+            
+            # Ensure minimum interval of 100ms
+            collection_interval = max(100, int(integration_time_ms))
+            
+            # Start data collection timer - collect at integration time rate
+            self.data_timer = QTimer(self)
+            self.data_timer.timeout.connect(self.data_logger.collect_data_sample)
+            self.data_timer.start(collection_interval)
+            
+            # Start data saving timer - save at integration time rate plus a small buffer
+            save_interval = int(integration_time_ms + 200)  # Add 200ms buffer for processing
+            self.save_timer = QTimer(self)
+            self.save_timer.timeout.connect(self.data_logger.save_continuous_data)
+            self.save_timer.start(save_interval)
+            
+            # Store the current timers for later adjustment
+            self.data_logger.collection_interval = collection_interval
+            self.data_logger.save_interval = save_interval
+            
+            # Update button text if it exists
+            if hasattr(self.spec_ctrl, 'toggle_btn'):
+                self.spec_ctrl.toggle_btn.setText("Stop Saving")
+        else:
+            self.statusBar().showMessage("Data saving stopped")
+            
+            # Stop timers
+            if hasattr(self, 'data_timer'):
+                self.data_timer.stop()
+            if hasattr(self, 'save_timer'):
+                self.save_timer.stop()
+            
+            # Update button text if it exists
+            if hasattr(self.spec_ctrl, 'toggle_btn'):
+                self.spec_ctrl.toggle_btn.setText("Start Saving")
 
-        # Filterwheel Control
-        fw_group = QGroupBox("Filterwheel")
-        fw_layout = QGridLayout()
-        self.fw_status_label = QLabel("Status: Disconnected")
-        self.fw_pos_label = QLabel("Position: N/A")
-        self.fw_pos_combo = QComboBox()
-        self.fw_pos_combo.addItems([str(i) for i in range(1, 7)])
-        self.set_fw_pos_button = QPushButton("Set Position")
-        fw_layout.addWidget(self.fw_status_label, 0, 0, 1, 2)
-        fw_layout.addWidget(self.fw_pos_label, 1, 0, 1, 2)
-        fw_layout.addWidget(self.fw_pos_combo, 2, 0)
-        fw_layout.addWidget(self.set_fw_pos_button, 2, 1)
-        fw_group.setLayout(fw_layout)
-        layout.addWidget(fw_group)
+    def collect_data_sample(self):
+        """Collect a data sample for averaging, with pause on hardware state changes"""
+        if not hasattr(self, 'continuous_saving') or not self.continuous_saving or not hasattr(self, 'spec_ctrl') or not hasattr(self.spec_ctrl, 'intens') or not self.spec_ctrl.intens:
+            return
+        
+        # Check for hardware state changes
+        current_motor_angle = 0
+        if hasattr(self.motor_ctrl, "current_angle_deg"):
+            current_motor_angle = self.motor_ctrl.current_angle_deg
+        
+        current_filter_pos = self.filter_ctrl.get_position()
+        if current_filter_pos is None:
+            current_filter_pos = getattr(self.filter_ctrl, "current_position", 0)
+        
+        # Detect hardware state changes
+        motor_changed = abs(current_motor_angle - self._last_motor_angle) > 0.5
+        filter_changed = current_filter_pos != self._last_filter_position
+        
+        if (motor_changed or filter_changed) and not self._hardware_changing:
+            # Hardware state has changed, pause data collection
+            self._hardware_changing = True
+            self.statusBar().showMessage("Hardware state changed - pausing data collection for 2 seconds...")
+            self.handle_status_message(f"Pausing data collection: {'Motor moved' if motor_changed else 'Filter changed'}")
+            
+            # Update tracking variables
+            self._last_motor_angle = current_motor_angle
+            self._last_filter_position = current_filter_pos
+            
+            # Start timer to resume data collection after 2 seconds
+            self._hardware_change_timer.start(2000)  # 2 second pause
+            return
+        
+        # If hardware is still changing, don't collect data
+        if self._hardware_changing:
+            return
+        
+        # Collect data sample
+        self.data_logger.collect_data_sample()
 
-        layout.addStretch()
-        self.left_panel.setLayout(layout)
+    def _hardware_change_timeout(self):
+        """Resume data collection after hardware state change pause"""
+        self._hardware_changing = False
+        self._hardware_change_timer.stop()
+        self.statusBar().showMessage("Resuming data collection after hardware state change")
+        self.handle_status_message("Resuming data collection")
 
-    def create_main_panel(self):
-        """Creates the main central panel with plots and logs."""
-        self.main_panel = QWidget()
-        layout = QVBoxLayout()
+    def _update_indicators(self):
+        """Update groupbox titles with connection status (green if connected, red if not)"""
+        for ctrl, title, ok_fn in [
+            (self.motor_ctrl, "Motor", self.motor_ctrl.is_connected),
+            (self.filter_ctrl, "Filter Wheel", self.filter_ctrl.is_connected),
+            (self.imu_ctrl, "IMU", self.imu_ctrl.is_connected),
+            (self.spec_ctrl, "Spectrometer", self.spec_ctrl.is_ready),
+            (self.temp_ctrl, "Temperature", lambda: hasattr(self.temp_ctrl, 'tc')),
+            (self.thp_ctrl, "THP Sensor", self.thp_ctrl.is_connected)
+        ]:
+            col = "#4caf50" if ok_fn() else "#f44336"  # Green if connected, red if not
+            gb = ctrl.groupbox if hasattr(ctrl, 'groupbox') else ctrl.widget
+            gb.setTitle(f"● {title}")
+            gb.setStyleSheet(f"""
+                QGroupBox#{gb.objectName()}::title {{
+                    color: {col};
+                    font-weight: bold;
+                    font-size: 12pt;
+                    position: relative;
+                    top: -2px;  /* Move title up by 2 pixels */
+                }}
+                
+                QGroupBox#{gb.objectName()} {{
+                    margin-top: 1.5ex;  /* Increased margin-top */
+                    padding-top: 1ex;   /* Increased padding-top */
+                }}
+            """)
 
-        # Plot Widget for Spectrometer
-        self.plot_widget = PlotWidget()
-        self.plot_widget.setBackground('w')
-        # The following line has been changed to remove the grid
-        self.plot_widget.showGrid(x=False, y=False)
-        self.plot_widget.setLabel('left', 'Intensity', units='counts')
-        self.plot_widget.setLabel('bottom', 'Wavelength', units='nm')
-        self.plot_curve = self.plot_widget.plot(pen='b')
-        layout.addWidget(self.plot_widget)
+    def handle_status_message(self, message: str):
+        """Log hardware state changes with level tags."""
+        if not hasattr(self.data_logger, 'log_file') or not self.data_logger.log_file:
+            return
+            
+        msg_lower = message.lower()
+        # Determine severity level
+        if ("fail" in msg_lower or "error" in msg_lower or "no response" in msg_lower or "cannot" in msg_lower):
+            level = "ERROR"
+        elif ("no ack" in msg_lower or "invalid" in msg_lower or "not connected" in msg_lower or "not ready" in msg_lower):
+            level = "WARNING"
+        else:
+            level = "INFO"
+            
+        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd hh:mm:ss")
+        log_line = f"{ts} [{level}] {message}\n"
+        
+        try:
+            self.data_logger.log_file.write(log_line)
+            self.data_logger.log_file.flush()
+            os.fsync(self.data_logger.log_file.fileno())
+        except Exception as e:
+            print(f"Log write error: {e}")
 
-        # Tab Widget for Logs, Routines, etc.
-        self.tab_widget = QTabWidget()
-        self.log_text_edit = QTextEdit()
-        self.log_text_edit.setReadOnly(True)
-        self.tab_widget.addTab(self.log_text_edit, "Log")
-        self.tab_widget.addTab(self.routine_manager, "Routines & Schedules")
-        layout.addWidget(self.tab_widget)
-
-        layout.setStretch(0, 2) # Give more space to the plot
-        layout.setStretch(1, 1)
-        self.main_panel.setLayout(layout)
-
-    def create_right_panel(self):
-        """Creates the right panel with sensor data and camera feed."""
-        self.right_panel = QWidget()
-        layout = QVBoxLayout()
-
-        # Sensor Data
-        sensor_group = QGroupBox("Sensor Data")
-        sensor_layout = QGridLayout()
-        self.imu_status_label = QLabel("IMU: Disconnected")
-        self.temp_status_label = QLabel("Temp Ctrl: Disconnected")
-        self.thp_status_label = QLabel("THP: Disconnected")
-        self.imu_data_label = QLabel("Roll: N/A, Pitch: N/A, Yaw: N/A")
-        self.temp_data_label = QLabel("Temp: N/A °C")
-        self.thp_data_label = QLabel("T: N/A °C, H: N/A %, P: N/A hPa")
-        sensor_layout.addWidget(self.imu_status_label, 0, 0)
-        sensor_layout.addWidget(self.temp_status_label, 1, 0)
-        sensor_layout.addWidget(self.thp_status_label, 2, 0)
-        sensor_layout.addWidget(self.imu_data_label, 3, 0)
-        sensor_layout.addWidget(self.temp_data_label, 4, 0)
-        sensor_layout.addWidget(self.thp_data_label, 5, 0)
-        sensor_group.setLayout(sensor_layout)
-        layout.addWidget(sensor_group)
-
-        # Camera Feed
-        camera_group = QGroupBox("Camera")
-        cam_layout = QVBoxLayout()
-        self.camera_view = QLabel("Camera feed disabled.")
-        self.camera_view.setAlignment(Qt.AlignCenter)
-        self.camera_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.camera_view.setStyleSheet("background-color: black; color: white;")
-        cam_layout.addWidget(self.camera_view)
-        self.camera_manager.set_view(self.camera_view)
-        camera_group.setLayout(cam_layout)
-        layout.addWidget(camera_group)
-
-        layout.setStretch(1, 1) # Make camera feed expand
-        self.right_panel.setLayout(layout)
-
-
-    def connect_signals(self):
-        """Connect all signals to their respective slots."""
-        # Spectrometer signals
-        self.spectrometer_controller.connection_status.connect(self.update_spec_status)
-        self.spectrometer_controller.wavelengths_ready.connect(self.update_wavelengths)
-        self.spectrometer_controller.measurement_ready.connect(self.update_plot)
-        self.set_int_time_button.clicked.connect(lambda: self.spectrometer_controller.set_integration_time(float(self.integration_time_input.text())))
-        self.take_measurement_button.clicked.connect(self.spectrometer_controller.take_measurement)
-
-        # Motor signals
-        self.motor_controller.motor_status.connect(self.update_motor_status)
-        self.motor_controller.motor_position.connect(self.update_motor_position)
-        self.move_abs_button.clicked.connect(lambda: self.motor_controller.move_absolute('az', float(self.move_az_input.text()))) # Simple example
-        self.stop_motor_button.clicked.connect(self.motor_controller.stop)
-
-        # Filterwheel signals
-        self.filterwheel_controller.filterwheel_status.connect(self.update_fw_status)
-        self.filterwheel_controller.filterwheel_position.connect(self.update_fw_position)
-        self.set_fw_pos_button.clicked.connect(lambda: self.filterwheel_controller.set_position(int(self.fw_pos_combo.currentText())))
-
-        # Sensor signals
-        self.imu_controller.imu_status.connect(lambda status: self.imu_status_label.setText(f"IMU: {status}"))
-        self.imu_controller.imu_data.connect(self.update_imu_data)
-        self.temp_controller.temp_status.connect(lambda status: self.temp_status_label.setText(f"Temp Ctrl: {status}"))
-        self.temp_controller.temp_data.connect(self.update_temp_data)
-        self.thp_controller.thp_status.connect(lambda status: self.thp_status_label.setText(f"THP: {status}"))
-        self.thp_controller.thp_data.connect(self.update_thp_data)
-
-        # Data logger
-        self.data_logger.log_message.connect(self.log_text_edit.append)
-
-
-    def update_sensor_data(self):
-        """Periodically request data from sensors."""
-        self.imu_controller.get_data()
-        self.temp_controller.get_data()
-        self.thp_controller.get_data()
-
-    def update_spec_status(self, status):
-        self.spec_status_label.setText(f"Status: {status}")
-
-    def update_wavelengths(self, wavelengths):
-        self.wavelengths = wavelengths
-
-    def update_plot(self, data):
-        if self.wavelengths is not None and data is not None:
-            if len(self.wavelengths) == len(data):
-                self.plot_curve.setData(self.wavelengths, data)
+    def resizeEvent(self, event):
+        """Handle window resize events to adjust UI elements"""
+        super().resizeEvent(event)
+        
+        # Adjust camera label size based on window size
+        if hasattr(self, 'cam_label'):
+            # Set camera label height proportional to window height
+            cam_height = max(180, int(self.height() * 0.2))
+            self.cam_label.setMinimumHeight(cam_height)
+        
+        # Adjust splitter proportions
+        if hasattr(self, 'main_splitter'):
+            window_width = self.width()
+            # Adjust splitter based on window width
+            if window_width < 1600:
+                # For smaller screens, give more space to controls
+                self.main_splitter.setSizes([int(window_width * 0.6), int(window_width * 0.4)])
             else:
-                self.data_logger.log(f"Wavelength/Data length mismatch: {len(self.wavelengths)} vs {len(data)}")
-
-    def update_motor_status(self, status):
-        self.motor_status_label.setText(f"Status: {status}")
-
-    def update_motor_position(self, position):
-        self.zenith_pos_label.setText(f"Zenith: {position.get('za', 'N/A')}")
-        self.azimuth_pos_label.setText(f"Azimuth: {position.get('az', 'N/A')}")
-
-    def update_fw_status(self, status):
-        self.fw_status_label.setText(f"Status: {status}")
-
-    def update_fw_position(self, position):
-        self.fw_pos_label.setText(f"Position: {position}")
-
-    def update_imu_data(self, data):
-        roll = data.get('roll', 'N/A')
-        pitch = data.get('pitch', 'N/A')
-        yaw = data.get('yaw', 'N/A')
-        self.imu_data_label.setText(f"Roll: {roll:.2f}, Pitch: {pitch:.2f}, Yaw: {yaw:.2f}")
-        self.data_logger.log_sensor("IMU", data)
-
-
-    def update_temp_data(self, data):
-        temp = data.get('temp', 'N/A')
-        self.temp_data_label.setText(f"Temp: {temp:.2f} °C")
-        self.data_logger.log_sensor("TempCtrl", data)
-
-
-    def update_thp_data(self, data):
-        temp = data.get('temp', 'N/A')
-        humidity = data.get('humidity', 'N/A')
-        pressure = data.get('pressure', 'N/A')
-        self.thp_data_label.setText(f"T: {temp:.2f} °C, H: {humidity:.2f} %, P: {pressure:.2f} hPa")
-        self.data_logger.log_sensor("THP", data)
-
+                # For larger screens, give more space to spectrometer
+                self.main_splitter.setSizes([int(window_width * 0.7), int(window_width * 0.3)])
+        
+        # Update camera feed to fit new size
+        if hasattr(self, 'camera_manager'):
+            self.camera_manager.update_camera_feed()
 
     def closeEvent(self, event):
-        """Ensure all hardware is disconnected on exit."""
-        self.spectrometer_controller.disconnect()
-        self.motor_controller.disconnect()
-        self.filterwheel_controller.disconnect()
-        self.imu_controller.disconnect()
-        self.temp_controller.disconnect()
-        self.thp_controller.disconnect()
-        self.camera_manager.stop_camera()
-        event.accept()
+        """Handle window close event"""
+        # Stop spectrometer if active
+        if hasattr(self, 'spec_ctrl') and self.spec_ctrl is not None:
+            try:
+                if hasattr(self.spec_ctrl, 'measure_active') and self.spec_ctrl.measure_active:
+                    self.statusBar().showMessage("Stopping spectrometer before exit...")
+                    self.spec_ctrl.stop()
+                    # Wait briefly for the spectrometer to stop
+                    QTimer.singleShot(500, lambda: self.cleanup_and_close(event))
+                    event.ignore()  # Temporarily ignore the close event
+                    return
+            except Exception as e:
+                print(f"Error stopping spectrometer: {e}")
+        
+        self.cleanup_and_close(event)
 
-if __name__ == '__main__':
-    # This part is for testing the main window independently.
-    # The main execution is handled by main.py
-    app = QApplication(sys.argv)
-    # Provide dummy parameters for testing
-    window = MainWindow(
-        spectrometer_type="avantes",
-        spectrometer_dll_path="path/to/your/avaspecx64.dll",
-        spectrometer_kwargs={}
-    )
-    window.show()
-    sys.exit(app.exec_())
+    def cleanup_and_close(self, event):
+        """Clean up resources and close the application"""
+        # Clean up resources
+        if hasattr(self, 'data_logger') and hasattr(self.data_logger, 'continuous_saving') and self.data_logger.continuous_saving:
+            self.toggle_data_saving()
+        
+        if hasattr(self.data_logger, 'csv_file') and self.data_logger.csv_file:
+            self.data_logger.csv_file.close()
+        if hasattr(self.data_logger, 'log_file') and self.data_logger.log_file:
+            self.data_logger.log_file.close()
+        
+        # Release camera resources if initialized
+        if hasattr(self, 'camera_manager'):
+            self.camera_manager.release_camera()
+        
+        # Call the parent class closeEvent
+        event.accept()

@@ -1,0 +1,57 @@
+# Reference Measurement (RE) Schedule
+# Created for calibration and reference measurements# Commands run sequentially with wait times in milliseconds
+# Start with a log message
+log Starting Reference Measurement Schedule
+# Position the motor at 180 degrees (nadir)motor move 180
+wait 2000
+# Set filter wheel to position 1 (Opaque filter)filter position 1
+wait 1000
+# Start spectrometer measurementspectrometer start
+wait 2000
+# Save the reference measurementlog Saving reference data with opaque filter
+spectrometer savewait 1000
+# Change filter and save another reference
+filter position 2wait 1000
+log Saving reference data with open filterspectrometer save
+wait 1000
+# Set temperature to reference valuetemp setpoint 25.0
+wait 2000
+# Save temperature-controlled referencelog Saving temperature-controlled reference data
+spectrometer savewait 1000
+# Move to calibration position
+motor move 270wait 2000
+# Save calibration measurement
+log Saving calibration dataspectrometer save
+wait 1000
+# Return to home positionmotor move 0
+wait 2000
+# Complete the schedule
+log Reference Measurement Schedule completed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

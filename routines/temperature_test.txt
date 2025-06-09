@@ -1,0 +1,18 @@
+# Temperature test sequence
+log Starting temperature test
+temperature set 20
+wait 10000
+spectrometer start
+wait 3000
+spectrometer save
+temperature set 25
+wait 10000
+spectrometer start
+wait 3000
+spectrometer save
+temperature set 30
+wait 10000
+spectrometer start
+wait 3000
+spectrometer save
+log Temperature test complete

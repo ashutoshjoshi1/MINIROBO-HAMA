@@ -1,0 +1,72 @@
+# PO Routine - Position and Optics Test
+# Cycles through different motor positions and filter wheel positions
+# Commands run sequentially with wait times in milliseconds
+
+# Start with a log message
+log Starting PO Routine - Position and Optics Test
+
+# Start data saving
+log Starting data saving
+data start
+wait 2000
+
+# First position: 0 degrees (current position)
+log Testing at current position (0 degrees)
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 3000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 3000
+
+# Move to 45 degrees
+log Moving to 45 degrees
+motor move 45
+wait 3000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 3000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 3000
+
+# Move to 90 degrees
+log Moving to 90 degrees
+motor move 90
+wait 3000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 3000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 3000
+
+# Move to 135 degrees
+log Moving to 135 degrees
+motor move 135
+wait 3000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 3000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 3000
+
+# Move to 180 degrees
+log Moving to 180 degrees
+motor move 180
+wait 3000
+# Set filter wheel to position 1 (Opaque filter)
+filter position 1
+wait 3000
+# Set filter wheel to position 2 (Open filter)
+filter position 2
+wait 3000
+
+# Stop data saving
+log Stopping data saving
+data stop
+wait 1000
+
+# Complete the routine
+log PO Routine completed

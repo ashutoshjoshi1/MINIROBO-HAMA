@@ -1,0 +1,57 @@
+# Solar Observation (SO) Schedule
+# Created for solar spectrum measurements# Commands run sequentially with wait times in milliseconds
+# Start with a log message
+log Starting Solar Observation Schedule
+# Position the motor at 0 degrees (zenith)motor move 0
+wait 2000
+# Set filter wheel to position 1 (Opaque filter)filter position 1
+wait 1000
+# Start spectrometer measurementspectrometer start
+wait 5000
+# Save the first measurementlog Saving solar spectrum data at zenith
+spectrometer savewait 1000
+# Move to 45 degrees
+motor move 45wait 2000
+# Save another measurement
+log Saving solar spectrum data at 45 degreesspectrometer save
+wait 1000
+# Move to 90 degreesmotor move 90
+wait 2000
+# Save another measurementlog Saving solar spectrum data at 90 degrees
+spectrometer savewait 1000
+# Set temperature to optimal value
+temp setpoint 20.0wait 1000
+# Final measurement with different filter
+filter position 2wait 1000
+log Saving solar spectrum with open filterspectrometer save
+wait 1000
+# Complete the schedule
+log Solar Observation Schedule completed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

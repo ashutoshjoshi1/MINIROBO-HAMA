@@ -1,0 +1,24 @@
+# Core dependencies
+PyQt5>=5.15.0
+numpy>=1.19.0
+matplotlib>=3.3.0
+pandas>=1.1.0
+
+# Hardware communication
+pyserial>=3.5
+libscrc>=1.7
+
+# Image processing
+opencv-python>=4.5.0
+Pillow>=8.0.0
+
+# Data handling and analysis
+scipy>=1.5.0
+
+# Spectrometer support (if using avaspec)
+# Note: The avaspec DLL/SO files must be installed separately
+
+# Optional: For development
+# pytest>=6.0.0
+# black>=21.5b2
+# flake8>=3.9.0
