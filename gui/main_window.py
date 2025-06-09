@@ -17,9 +17,11 @@ from PyQt5.QtGui import QImage, QPixmap
 from controllers.motor_controller import MotorController
 from controllers.filterwheel_controller import FilterWheelController
 from controllers.imu_controller import IMUController
-from controllers.spectrometer_controller import SpectrometerController
+from controllers.spectrometer_controller import *
 from controllers.temp_controller import TempController
 from controllers.thp_controller import THPController
+from controllers.avantes_spectrometer_controller import *
+from controllers.hama3_spectrometer_controller import *
 
 from gui.components.data_logger import DataLogger
 from gui.components.routine_manager import RoutineManager
@@ -104,7 +106,12 @@ class MainWindow(QMainWindow):
         self.thp_ctrl.status_signal.connect(self.handle_status_message)
         
         # Spectrometer controller
-        self.spec_ctrl = SpectrometerController(parent=self)
+        stype, _ = detect_spectrometer()
+        if stype=='Hama3':
+            self.spec_ctrl = Hama3SpectrometerController(parent=self)
+        else:
+            self.spec_ctrl = AvantesSpectrometerController(parent=self)
+        self.spec_ctrl.status.connect(self.statusBar().showMessage)
         self.spec_ctrl.status_signal.connect(self.statusBar().showMessage)
         self.spec_ctrl.status_signal.connect(self.handle_status_message)
         
