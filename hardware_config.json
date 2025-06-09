@@ -1,8 +1,13 @@
 {
-    "filterwheel": "COM12",
-    "imu": "COM14",
-    "motor": "COM11",
-    "temp_controller": "COM13",
-    "thp_sensor": "COM10"
+  "filterwheel": "COM12",
+  "imu": "COM14",
+  "motor": "COM11",
+  "temp_controller": "COM13",
+  "thp_sensor": "COM3",
+  "spectrometer": {
+    "type": "hamamatsu",
+    "dll_path": "drivers/DcIcUSB_v1.1.0.7/x64/DcIcUSB.dll",
+    "sn": "46AN0776",
+    "npix_active": 4096
   }
-  
+}

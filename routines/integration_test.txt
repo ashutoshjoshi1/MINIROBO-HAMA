@@ -1,0 +1,47 @@
+# Integration Time Test Routine
+log Starting Integration Time Test
+filter position 2
+wait 1000
+motor move 90
+wait 2000
+# Set integration time to 10ms
+integration 10
+wait 1000
+spectrometer start
+wait 3000
+plot
+wait 1000
+log Completed measurement with 10ms integration time
+# Set integration time to 50ms
+integration 50
+wait 1000
+spectrometer start
+wait 3000
+plot
+wait 1000
+log Completed measurement with 50ms integration time
+# Set integration time to 100ms
+integration 100
+wait 1000
+spectrometer start
+wait 3000
+plot
+wait 1000
+log Completed measurement with 100ms integration time
+# Set integration time to 500ms
+integration 500
+wait 1000
+spectrometer start
+wait 3000
+plot
+wait 1000
+log Completed measurement with 500ms integration time
+# Set integration time to 1000ms
+integration 1000
+wait 1000
+spectrometer start
+wait 3000
+plot
+wait 1000
+log Completed measurement with 1000ms integration time
+log Integration Time Test Complete
