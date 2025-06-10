@@ -1,0 +1,2 @@
+16:35:22.300 | Peak 59421.0 (avg of 1 samples)
+16:35:24.300 | Peak 59421.0 (avg of 1 samples)
